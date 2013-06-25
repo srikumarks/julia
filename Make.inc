@@ -1,9 +1,58 @@
 # -*- mode: makefile-gmake -*-
 
-# include twice to pickup user definitions
+# build directory
+BUILD = $(JULIAHOME)/usr
+
+# Use libraries available on the system instead of building them
+USE_SYSTEM_LLVM=0
+USE_SYSTEM_LIBUNWIND=0
+USE_SYSTEM_READLINE=0
+USE_SYSTEM_PCRE=0
+USE_SYSTEM_LIBM=0
+USE_SYSTEM_OPENLIBM=0
+USE_SYSTEM_BLAS=0
+USE_SYSTEM_LAPACK=0
+USE_SYSTEM_FFTW=0
+USE_SYSTEM_GMP=0
+USE_SYSTEM_MPFR=0
+USE_SYSTEM_ARPACK=0
+USE_SYSTEM_SUITESPARSE=0
+USE_SYSTEM_ZLIB=0
+USE_SYSTEM_GRISU=0
+USE_SYSTEM_RMATH=0
+USE_SYSTEM_LIBUV=0
+
+# OPENBLAS build options
+OPENBLAS_DYNAMIC_ARCH=0
+OPENBLAS_USE_THREAD=1
+OPENBLAS_TARGET_ARCH=
+
+# use Intel's MKL BLAS & LAPACK (version 10.3 or greater)
+USE_MKL = 0
+# directory containing -lmkl_rt
+MKLLIB = $(MKLROOT)/lib/intel64
+
+# ATLAS must have been previously built with "make -C deps compile-atlas" (without -jN),
+# or installed to usr/lib/libatlas from some another source (built as
+# a shared library, for your platform, single threaded)
+USE_ATLAS = 0
+ATLAS_LIBDIR = $(BUILD)/lib
+#or ATLAS_LIBDIR = /path/to/system/atlas/lib
+
+# cross-compile
+#XC_HOST = i686-w64-mingw32
+#XC_HOST = x86_64-w64-mingw32
+
+DEFAULT_REPL = readline
+JULIAGC = MARKSWEEP
+USE_COPY_STACKS = 1
+
+# user overrides
 ifeq (exists, $(shell [ -e $(JULIAHOME)/Make.user ] && echo exists ))
 include $(JULIAHOME)/Make.user 
 endif
+
+### --- END CONFIGURATION SECTION ---
 
 .SUFFIXES:
 
@@ -11,7 +60,6 @@ JULIA_VERSION = $(shell cat $(JULIAHOME)/VERSION)
 JULIA_COMMIT = $(shell git rev-parse --short=10 HEAD)
 
 LLVMROOT = $(BUILD)
-BUILD = $(JULIAHOME)/usr
 # Directories where said libraries get installed to
 JL_PRIVATE_LIBDIR = lib/julia
 JL_LIBDIR = lib
@@ -22,10 +70,6 @@ MULTIARCH = $(shell gcc -print-multiarch)
 JL_PRIVATE_LIBDIR = lib/$(MULTIARCH)/julia
 JL_LIBDIR = lib/$(MULTIARCH)/
 endif
-
-# Cross-compile
-#XC_HOST = i686-w64-mingw32
-#XC_HOST = x86_64-w64-mingw32
 
 ifeq ($(XC_HOST),)
 CROSS_COMPILE=
@@ -65,11 +109,12 @@ fPIC = -fPIC
 EXE =
 endif
 
-DEFAULT_REPL = readline
-JULIAGC = MARKSWEEP
-USE_COPY_STACKS = 1
-
 # Compiler specific stuff
+
+JCFLAGS = -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64
+JCXXFLAGS = -pipe $(fPIC) -fno-rtti
+DEBUGFLAGS = -O0 -DDEBUG -fstack-protector-all
+SHIPFLAGS = -O3
 
 ifeq ($(CC), clang)
 USEGCC = 0
@@ -94,19 +139,15 @@ endif
 ifeq ($(USEGCC),1)
 CC = $(CROSS_COMPILE)gcc
 CXX = $(CROSS_COMPILE)g++
-JCFLAGS = -std=gnu99 -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64
-JCXXFLAGS = -pipe $(fPIC) -fno-rtti
-DEBUGFLAGS = -O0 -ggdb3 -DDEBUG -fstack-protector-all
-SHIPFLAGS = -O3 -falign-functions
+JCFLAGS += -std=gnu99
+DEBUGFLAGS += -ggdb3
+SHIPFLAGS += -falign-functions
 endif
 
 ifeq ($(USECLANG),1)
 CC = $(CROSS_COMPILE)clang
 CXX = $(CROSS_COMPILE)clang++
-JCFLAGS = -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64
-JCXXFLAGS = -pipe $(fPIC) -fno-rtti
-DEBUGFLAGS = -O0 -g -DDEBUG -fstack-protector-all
-SHIPFLAGS = -O3
+DEBUGFLAGS += -g
 ifeq ($(OS), Darwin)
 CC += -mmacosx-version-min=10.6
 CXX += -mmacosx-version-min=10.6
@@ -124,31 +165,6 @@ RANLIB := $(CROSS_COMPILE)ranlib
 
 # if not absolute, then relative to JULIA_HOME
 JCFLAGS += '-DJL_SYSTEM_IMAGE_PATH="../$(JL_PRIVATE_LIBDIR)/sys.ji"'
-
-# OPENBLAS build options
-OPENBLAS_DYNAMIC_ARCH=0
-OPENBLAS_USE_THREAD=1
-OPENBLAS_TARGET_ARCH=
-
-# Use libraries available on the system instead of building them
-
-USE_SYSTEM_LLVM=0
-USE_SYSTEM_LIBUNWIND=0
-USE_SYSTEM_READLINE=0
-USE_SYSTEM_PCRE=0
-USE_SYSTEM_LIBM=0
-USE_SYSTEM_OPENLIBM=0
-USE_SYSTEM_BLAS=0
-USE_SYSTEM_LAPACK=0
-USE_SYSTEM_FFTW=0
-USE_SYSTEM_GMP=0
-USE_SYSTEM_MPFR=0
-USE_SYSTEM_ARPACK=0
-USE_SYSTEM_SUITESPARSE=0
-USE_SYSTEM_ZLIB=0
-USE_SYSTEM_GRISU=0
-USE_SYSTEM_RMATH=0
-USE_SYSTEM_LIBUV=0
 
 ifeq (exists, $(shell [ -e $(JULIAHOME)/Make.user ] && echo exists ))
 include $(JULIAHOME)/Make.user
@@ -342,15 +358,6 @@ endif
 
 # MKL
 
-ifeq ($(USE_MKL),)
-  USE_MKL = 0
-endif
-ifeq ($(USE_MKL), 1)
-ifeq ($(strip $(MKLLIB)),)
-  MKLLIB = $$MKLROOT/lib/intel64
-endif
-endif
-
 ifeq ($(USE_MKL), 1)
 USE_BLAS64 = 0
 USE_SYSTEM_BLAS=1
@@ -367,13 +374,6 @@ endif
 endif
 
 # ATLAS
-
-# ATLAS must have been previously built with "make -C deps compile-atlas" (without -jN),
-# or installed to usr/lib/libatlas from some another source (built as
-# a shared library, for your platform, single threaded)
-USE_ATLAS = 0
-ATLAS_LIBDIR = $(BUILD)/lib
-#or ATLAS_LIBDIR = /path/to/system/atlas/lib
 
 ifeq ($(USE_ATLAS), 1)
 USE_BLAS64 = 0
