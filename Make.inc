@@ -3,6 +3,33 @@
 # build directory
 BUILD = $(JULIAHOME)/usr
 
+# operating system & architecture
+OS := $(shell uname)
+ARCH := $(shell uname -m)
+ifneq (,$(findstring MINGW,$(OS)))
+  OS := WINNT
+endif
+ifeq ($(OS), Darwin)
+  OSXVER := $(shell sw_vers -productVersion | cut -b 1-4)
+endif
+
+# compilers, linkers, etc.
+CC = gcc
+CXX = g++
+FC = gfortran
+CPP = $(CC) -E
+AR = ar
+AS = as
+LD = ld
+RANLIB = ranlib
+ifeq ($(OS), Darwin)
+  ifneq ($(OSXVER), 10.6)
+    # default to clang for 10.7 and greater
+    CC = clang
+    CXX = clang++
+  endif
+endif
+
 # Use libraries available on the system instead of building them
 USE_SYSTEM_LLVM=0
 USE_SYSTEM_LIBUNWIND=0
@@ -42,6 +69,9 @@ ATLAS_LIBDIR = $(BUILD)/lib
 # cross-compile
 #XC_HOST = i686-w64-mingw32
 #XC_HOST = x86_64-w64-mingw32
+BUILD_OS := $(OS)
+CROSS_COMPILE =
+HOSTCC = $(CC)
 
 DEFAULT_REPL = readline
 JULIAGC = MARKSWEEP
@@ -71,10 +101,7 @@ JL_PRIVATE_LIBDIR = lib/$(MULTIARCH)/julia
 JL_LIBDIR = lib/$(MULTIARCH)/
 endif
 
-ifeq ($(XC_HOST),)
-CROSS_COMPILE=
-HOSTCC = $(CC)
-else
+ifneq ($(XC_HOST),)
 HOSTCC = gcc
 override OPENBLAS_DYNAMIC_ARCH = 1
 override CROSS_COMPILE=$(XC_HOST)-
@@ -90,15 +117,6 @@ endif
 endif
 
 # Figure out OS and architecture
-BUILD_OS := $(shell uname)
-OS := $(BUILD_OS)
-
-ifneq (,$(findstring MINGW,$(OS)))
-override OS := WINNT
-endif
-ifneq (,$(findstring MINGW,$(BUILD_OS)))
-override BUILD_OS := WINNT
-endif
 
 ifeq ($(OS), WINNT)
 fPIC = 
@@ -124,29 +142,13 @@ USEGCC = 1
 USECLANG = 0
 endif
 
-ifeq ($(OS), Darwin)
-DARWINVER = $(shell uname -r | cut -b 1-2)
-OSXVER = $(shell sw_vers -productVersion | cut -b 1-4)
-ifeq ($(DARWINVER), 10)
-USEGCC = 1
-USECLANG = 0
-else
-USEGCC = 0
-USECLANG = 1
-endif
-endif
-
 ifeq ($(USEGCC),1)
-CC = $(CROSS_COMPILE)gcc
-CXX = $(CROSS_COMPILE)g++
 JCFLAGS += -std=gnu99
 DEBUGFLAGS += -ggdb3
 SHIPFLAGS += -falign-functions
 endif
 
 ifeq ($(USECLANG),1)
-CC = $(CROSS_COMPILE)clang
-CXX = $(CROSS_COMPILE)clang++
 DEBUGFLAGS += -g
 ifeq ($(OS), Darwin)
 CC += -mmacosx-version-min=10.6
@@ -155,20 +157,20 @@ JCFLAGS += -D_LARGEFILE_SOURCE -D_DARWIN_USE_64_BIT_INODE=1
 endif
 endif
 
-FC = $(CROSS_COMPILE)gfortran
 JFFLAGS = -O2 $(fPIC)
-CPP = $(CC) -E
+
+ifneq (,$(CROSS_COMPILE))
+CC = $(CROSS_COMPILE)gcc
+CXX = $(CROSS_COMPILE)g++
+FC = $(CROSS_COMPILE)gfortran
 AR := $(CROSS_COMPILE)ar
 AS := $(CROSS_COMPILE)as
 LD := $(CROSS_COMPILE)ld
 RANLIB := $(CROSS_COMPILE)ranlib
+endif
 
 # if not absolute, then relative to JULIA_HOME
 JCFLAGS += '-DJL_SYSTEM_IMAGE_PATH="../$(JL_PRIVATE_LIBDIR)/sys.ji"'
-
-ifeq (exists, $(shell [ -e $(JULIAHOME)/Make.user ] && echo exists ))
-include $(JULIAHOME)/Make.user
-endif
 
 # Snow Leopard specific configuration
 ifeq ($(OS), Darwin)
@@ -178,20 +180,10 @@ USE_SYSTEM_BLAS=1
 endif
 endif
 
-# ===========================================================================
-
 BUILD_MACHINE = $(shell $(HOSTCC) -dumpmachine)
 ARCH = $(shell $(CC) -dumpmachine | sed "s/\([^-]*\).*$$/\1/")
 ifeq ($(ARCH),mingw32)
 $(error "the mingw32 compiler you are using fails the openblas testsuite. please see the README.windows document for a replacement")
-endif
-ifeq ($(OS),Darwin)
-ifeq ($(OS),$(BUILD_OS))
-## Mac is a nifty dual-arch platform (or was until 10.8), so we detect the currently running OS arch instead
-## of the compiler "-dumpmachine" result, like I believe the compiler does, and make a substitution
-ARCH = $(shell uname -m)
-BUILD_MACHINE = $(ARCH)$(shell echo $(BUILD_MACHINE) | sed "s/[^-]*\(.*\)$$/\1/")
-endif
 endif
 
 ifeq ($(USEGCC),1)
