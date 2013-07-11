@@ -259,8 +259,10 @@ end
 # system information
 
 function versioninfo(io::IO=STDOUT, verbose::Bool=false)
-    println(io,             "Julia $version_string")
-    println(io,             commit_string)
+    println(io,             "Julia Version $VERSION")
+    if length(commit_string) > 0
+        println(io,             commit_string)
+    end
     println(io,             "Platform Info:")
     println(io,             "  System: ", Sys.OS_NAME, " (", Sys.MACHINE, ")")
     println(io,             "  WORD_SIZE: ", Sys.WORD_SIZE)
