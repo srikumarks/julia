@@ -1310,7 +1310,6 @@ function typeinf(linfo::LambdaStaticData,atypes::Tuple,sparams::Tuple, def, cop)
     if (toprec && typeseq(curtype, frame.result)) || !isa(frame.prev,CallStack)
         rec = false
     end
-    
     fulltree = type_annotate(ast, s, sv, frame.result, args)
     
     if !rec
@@ -1826,7 +1825,7 @@ function inlineable(f, e::Expr, atypes, sv, enclosing_ast)
     if multiret
         lastexpr.head = :(=)
         rettype = exprtype(ast.args[3])
-        if rettype!==Any
+        if rettype !== Any
             retval = SymbolNode(retval,rettype)
         end
         unshift!(lastexpr.args, retval)
@@ -1968,21 +1967,24 @@ function inlining_pass(e::Expr, sv, ast)
         end
 
         atypes = limit_tuple_type(tuple(map(exprtype, eargs[2:])...))
-        count = 1
-        for aty in atypes
-            atyty = typeof(aty)
-            if atyty <: UnionType
-                count *= length(aty.types)
-                if count > 16 || count == 0
+        count = 1 # count of the number of argument type tuples we have, fully-expanded
+        if any(t->is(t,None), atypes)
+            count = 0
+        else
+            for aty in atypes
+                if isa(aty,UnionType)
+                    count *= length((aty::UnionType).types)
+                    if count > 16
+                        count = -1
+                        break
+                    end
+                elseif !isleaftype(aty)
                     count = -1
                     break
                 end
-            elseif !( atyty <: DataType )
-                count = -1
-                break
             end
         end
-        local res
+        rettype = exprtype(e)
         if count == 1
             res = inlineable(f, e, atypes, sv, ast)
         elseif count > 0
@@ -1999,28 +2001,31 @@ function inlining_pass(e::Expr, sv, ast)
                 end
             end
             atypes1 = Array(Any,length(atypes))
-            rettype = exprtype(e)
             i = length(atypes)
             res = inlining_pass(f, e, atypes, rettype, atypes1, i, sv, ast)
-        else
+        elseif count == 0
             return (e,stmts)
-#            res = inlineable(f, e, atypes, sv, ast)
+        else
+            res = inlineable(f, e, atypes, sv, ast)
         end
         if isa(res,Tuple)
             if isa(res[2],Array)
                 append!(stmts,res[2])
             end
-            return (res[1],stmts)
+            return (marktype!(res[1],rettype),stmts)
         elseif !is(res,NF)
-            return (res,stmts)
+            return (marktype!(res,rettype),stmts)
         else
             return (e,stmts)
         end
     end
     return (e,stmts)
 end
+marktype!(e::Expr, t) = (e.typ = t; e)
+marktype!(e::SymbolNode, t) = (e.typ = t; e)
+marktype!(e::Symbol, t) = SymbolNode(e,t)
+marktype!(e::ANY, t) = e
 function inlining_pass(f, e::Expr, atypes::Tuple, rettype, atypes1, i, sv, ast)
-    global jwn
     eargs = e.args
     if i == 0
         return inlineable(f, astcopy(e), tuple(atypes1...), sv, ast)
@@ -2302,14 +2307,18 @@ function replace_tupleref(e::ANY, tupname, vals, sv, i0)
 end
 
 function finfer(f::Callable, types)
-    x = methods(f,types)[1]
-    (tree, ty) = typeinf(x[3], x[1], x[2])
-    if !isa(tree,Expr)
-        return ccall(:jl_uncompress_ast, Any, (Any,Any), x[3], tree)
+    ast = {}
+    for x in methods(f,types)
+        (tree, ty) = typeinf(x[3], x[1], x[2])
+        if !isa(tree,Expr)
+            push!(ast, ccall(:jl_uncompress_ast, Any, (Any,Any), x[3], tree))
+        else
+            push!(ast, tree)
+        end
     end
-    tree
+    ast
 end
 
-#tfunc(f,t) = (methods(f,t)[1][3]).tfunc
+#tfunc(f,t) = (methods(f,t)[1][1][3]).tfunc
 
 ccall(:jl_enable_inference, Void, ())
